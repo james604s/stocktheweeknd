@@ -32,7 +32,15 @@ crontab（`crontab -e`）：
 
 ```cron
 # 日報：台灣 06:00 = 前一日 22:00 UTC；程式自行判斷美股是否已收盤
-0 22 * * * cd $HOME/stockwatch && uv run python jobs/daily.py >> logs/daily.log 2>&1
+# cron 的 PATH 只有 /usr/bin:/bin，uv 必須寫絕對路徑
+0 22 * * * cd $HOME/stockwatch && $HOME/.local/bin/uv run python jobs/daily.py >> logs/daily.log 2>&1
+```
+
+先用 `command -v uv` 確認 uv 的實際位置；若不在 `~/.local/bin`，改成對應路徑。
+可用 cron 的環境驗證一次：
+
+```bash
+env -i HOME=$HOME PATH=/usr/bin:/bin sh -c 'cd $HOME/stockwatch && $HOME/.local/bin/uv run python jobs/daily.py'
 ```
 
 - 執行失敗時 traceback 會推到 #ops，並以非零退出讓 cron 記錄。

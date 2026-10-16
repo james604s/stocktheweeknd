@@ -114,3 +114,49 @@ def test_run_reports_fetch_failures_to_ops_but_still_sends(settings, sender):
     names = [f["name"] for f in embed["fields"]]
     assert "當日無資料" in names
     assert "AAPL" in sender.sent[1][1]["content"]
+
+
+def test_failure_summary_fits_discord_limit(settings, sender):
+    tickers = [f"T{i:02d}" for i in range(40)]
+    settings.watchlist_path.write_text(
+        "instruments:\n" + "".join(f"  - {{ticker: {t}, market: US}}\n" for t in tickers)
+    )
+    source = FakeSource(fail=set(tickers))
+    daily.run(settings, now=FRIDAY_CLOSE, source=source)
+    ops = [p["content"] for c, p in sender.sent if c == "ops"]
+    assert len(ops) == 1
+    assert len(ops[0]) <= 2000
+    assert "有 40 檔抓取失敗" in ops[0]
+    assert "另有 30 檔" in ops[0]
+
+
+def test_format_failures_truncates_long_errors():
+    msg = daily.format_failures(REPORT_DATE, {"NVDA": "x" * 500})
+    line = msg.splitlines()[1]
+    assert len(line) <= len("- NVDA: ") + daily.MAX_ERROR_CHARS
+
+
+def test_main_reports_to_ops_and_reraises(monkeypatch, settings):
+    fake = FakeSender()
+    monkeypatch.setattr(daily, "load_settings", lambda: settings)
+    monkeypatch.setattr(daily, "DiscordSender", lambda webhooks: fake)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(daily, "run", boom)
+    with pytest.raises(RuntimeError, match="kaboom"):
+        daily.main()
+    assert [c for c, _ in fake.sent] == ["ops"]
+    assert "kaboom" in fake.sent[0][1]["content"]
+    configure(None)
+
+
+def test_main_reraises_when_settings_fail(monkeypatch):
+    def bad_settings():
+        raise ValueError("bad .env")
+
+    monkeypatch.setattr(daily, "load_settings", bad_settings)
+    configure(None)
+    with pytest.raises(ValueError, match="bad .env"):
+        daily.main()

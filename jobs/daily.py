@@ -8,7 +8,7 @@
 import logging
 import sys
 import traceback
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from stockwatch import calendar as mcal
 from stockwatch.config import Settings, load_settings, load_watchlist
@@ -29,6 +29,8 @@ log = logging.getLogger("jobs.daily")
 MARKET = "US"  # v1 只有美股；階段 3.5 改為依 watchlist 的 market 分組
 INITIAL_DAYS = 60  # 首次抓取回看天數
 BACKFILL_DAYS = 5  # 增量抓取回補天數，防缺漏
+MAX_FAILED_LISTED = 10  # #ops 失敗摘要最多列幾檔，其餘看 log
+MAX_ERROR_CHARS = 120  # 每檔錯誤訊息截斷長度
 
 
 def run(settings: Settings, *, now: datetime, source: DataSource) -> bool:
@@ -73,9 +75,22 @@ def run(settings: Settings, *, now: datetime, source: DataSource) -> bool:
         notify("daily", {"embeds": [embed]})
 
     if failed:
-        lines = "\n".join(f"- {t}: {msg}" for t, msg in failed.items())
-        notify("ops", {"content": f"⚠️ 日報 {report_date} 有 {len(failed)} 檔抓取失敗\n{lines}"})
+        notify("ops", {"content": format_failures(report_date, failed)})
     return True
+
+
+def _shorten(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def format_failures(report_date: date, failed: dict[str, str]) -> str:
+    """抓取失敗摘要，長度有上限，Yahoo 全掛時也不會超過 Discord 2000 字。"""
+    items = list(failed.items())
+    lines = [f"- {t}: {_shorten(msg, MAX_ERROR_CHARS)}" for t, msg in items[:MAX_FAILED_LISTED]]
+    if len(items) > MAX_FAILED_LISTED:
+        lines.append(f"…另有 {len(items) - MAX_FAILED_LISTED} 檔，詳見 logs/daily.log")
+    return f"⚠️ 日報 {report_date} 有 {len(items)} 檔抓取失敗\n" + "\n".join(lines)
 
 
 def _report_failure(tb: str) -> None:
@@ -92,15 +107,15 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stdout,
     )
-    settings = load_settings()
-    configure(DiscordSender(settings.discord_webhooks))
-    now = datetime.now(UTC)
+    settings: Settings | None = None
     try:
-        run(settings, now=now, source=YFinanceSource())
+        settings = load_settings()
+        configure(DiscordSender(settings.discord_webhooks))
+        run(settings, now=datetime.now(UTC), source=YFinanceSource())
     except Exception:
         log.exception("daily job 失敗")
         _report_failure(traceback.format_exc())
-        if settings.healthchecks_daily:
+        if settings is not None and settings.healthchecks_daily:
             ping(settings.healthchecks_daily, fail=True)
         raise
     if settings.healthchecks_daily:
