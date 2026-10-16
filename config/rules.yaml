@@ -1,0 +1,9 @@
+rules:
+  - id: pct_move_5
+    type: pct_change_vs_prev_close
+    threshold: 0.05
+    channels: [alerts]
+  - id: vol_spike_2x
+    type: volume_vs_avg20
+    multiplier: 2.0
+    channels: [alerts]
