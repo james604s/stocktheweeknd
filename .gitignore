@@ -225,3 +225,9 @@ logs/
 backups/
 .env.*
 !.env.example
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.pem
+*.key

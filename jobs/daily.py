@@ -8,27 +8,26 @@
 import logging
 import sys
 import traceback
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 from stockwatch import calendar as mcal
 from stockwatch.config import Settings, load_settings, load_watchlist
 from stockwatch.datasource import DataSource
 from stockwatch.datasource.yfinance_source import YFinanceSource
 from stockwatch.healthcheck import ping
+from stockwatch.history import sync_daily_bars
 from stockwatch.notify import configure, notify
 from stockwatch.notify.discord import DiscordSender
 from stockwatch.report.embed import build_embeds
 from stockwatch.report.sections import DailyContext
 from stockwatch.report.stats import VOL_WINDOW, TickerStat, compute_stat
 from stockwatch.store import connect, init_schema
-from stockwatch.store.bars import latest_bar_date, recent_bars, upsert_daily_bars
+from stockwatch.store.bars import recent_bars
 from stockwatch.store.instruments import sync_watchlist
 
 log = logging.getLogger("jobs.daily")
 
 MARKET = "US"  # v1 只有美股；階段 3.5 改為依 watchlist 的 market 分組
-INITIAL_DAYS = 60  # 首次抓取回看天數
-BACKFILL_DAYS = 5  # 增量抓取回補天數，防缺漏
 MAX_FAILED_LISTED = 10  # #ops 失敗摘要最多列幾檔，其餘看 log
 MAX_ERROR_CHARS = 120  # 每檔錯誤訊息截斷長度
 
@@ -51,15 +50,12 @@ def run(settings: Settings, *, now: datetime, source: DataSource) -> bool:
     stats: list[TickerStat] = []
     missing: list[str] = []
     failed: dict[str, str] = {}
+    refreshed: list[str] = []
     for inst in watchlist:
         try:
-            latest = latest_bar_date(conn, inst.ticker)
-            start = (
-                latest - timedelta(days=BACKFILL_DAYS)
-                if latest
-                else report_date - timedelta(days=INITIAL_DAYS)
-            )
-            upsert_daily_bars(conn, source.get_daily_bars(inst.ticker, start, report_date))
+            result = sync_daily_bars(conn, source, inst.ticker, report_date)
+            if result.refreshed_from is not None:
+                refreshed.append(f"{inst.ticker}（自 {result.refreshed_from} 起）")
         except Exception as exc:
             log.exception("%s 日線抓取失敗", inst.ticker)
             failed[inst.ticker] = f"{type(exc).__name__}: {exc}"
@@ -76,6 +72,9 @@ def run(settings: Settings, *, now: datetime, source: DataSource) -> bool:
 
     if failed:
         notify("ops", {"content": format_failures(report_date, failed)})
+    if refreshed:
+        names = _shorten("、".join(refreshed), 1800)
+        notify("ops", {"content": f"ℹ️ 歷史價格被改寫（可能是股票分割），已重抓：{names}"})
     return True
 
 

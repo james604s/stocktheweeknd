@@ -34,6 +34,39 @@ def latest_bar_date(conn: sqlite3.Connection, ticker: str) -> date | None:
     return date.fromisoformat(row["d"]) if row and row["d"] else None
 
 
+def earliest_bar_date(conn: sqlite3.Connection, ticker: str) -> date | None:
+    row = conn.execute(
+        "SELECT MIN(date) AS d FROM daily_bars WHERE ticker = ?", (ticker,)
+    ).fetchone()
+    return date.fromisoformat(row["d"]) if row and row["d"] else None
+
+
+def _row_to_bar(r: sqlite3.Row) -> DailyBar:
+    return DailyBar(
+        ticker=r["ticker"],
+        date=date.fromisoformat(r["date"]),
+        open=r["open"],
+        high=r["high"],
+        low=r["low"],
+        close=r["close"],
+        volume=r["volume"],
+    )
+
+
+def bars_between(conn: sqlite3.Connection, ticker: str, start: date, end: date) -> list[DailyBar]:
+    """start 到 end（皆含）的日線，依日期遞增。"""
+    rows = conn.execute(
+        """
+        SELECT ticker, date, open, high, low, close, volume
+        FROM daily_bars
+        WHERE ticker = ? AND date >= ? AND date <= ?
+        ORDER BY date
+        """,
+        (ticker, start.isoformat(), end.isoformat()),
+    ).fetchall()
+    return [_row_to_bar(r) for r in rows]
+
+
 def recent_bars(conn: sqlite3.Connection, ticker: str, *, end: date, limit: int) -> list[DailyBar]:
     """end（含）之前最近 limit 筆日線，依日期遞增排序。"""
     rows = conn.execute(
@@ -46,17 +79,6 @@ def recent_bars(conn: sqlite3.Connection, ticker: str, *, end: date, limit: int)
         """,
         (ticker, end.isoformat(), limit),
     ).fetchall()
-    bars = [
-        DailyBar(
-            ticker=r["ticker"],
-            date=date.fromisoformat(r["date"]),
-            open=r["open"],
-            high=r["high"],
-            low=r["low"],
-            close=r["close"],
-            volume=r["volume"],
-        )
-        for r in rows
-    ]
+    bars = [_row_to_bar(r) for r in rows]
     bars.reverse()
     return bars

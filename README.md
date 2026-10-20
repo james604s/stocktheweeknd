@@ -13,6 +13,20 @@ uv run pytest
 
 測試不打任何外部 API；datasource 用 `tests/fixtures/` 的錄製回應。
 
+## 金鑰保護
+
+金鑰只放 VPS 的 `.env`（權限 600），不進 git。clone 後先啟用 pre-commit hook：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+- hook 會在每次 commit 前掃描暫存檔，發現 Discord webhook、Anthropic key、healthchecks URL、
+  `.env` 金鑰賦值，或 `.env`、`data/`、`logs/`、`*.db` 等檔案就擋下。
+- 手動掃描整個 repo：`python3 scripts/check_secrets.py`。pytest 也會跑同一個檢查。
+- `.env` 權限比 600 寬時，job 啟動會記 warning。
+- 程式不會把 webhook 或 healthchecks URL 寫進 log 或推到 #ops。
+
 ## 部署（VPS，Ubuntu 24.04，系統時區 UTC）
 
 ```bash
@@ -46,6 +60,7 @@ env -i HOME=$HOME PATH=/usr/bin:/bin sh -c 'cd $HOME/stockwatch && $HOME/.local/
 - 執行失敗時 traceback 會推到 #ops，並以非零退出讓 cron 記錄。
 - 設定 `HEALTHCHECKS_URL_DAILY` 後，每次成功執行會 ping 一次（含非交易日）；失敗 ping `/fail`。
 - 單檔抓取失敗不會擋住日報：該檔列入「當日無資料」，錯誤摘要另推 #ops。
+- 偵測到歷史價格被改寫（股票分割）時，該檔整段重抓並推 #ops 通知。
 
 ## 階段進度
 

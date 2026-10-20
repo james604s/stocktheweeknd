@@ -1,0 +1,3 @@
+#!/bin/sh
+# 啟用：git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check_secrets.py" --staged
