@@ -35,10 +35,12 @@ def load_watchlist(path: Path) -> list[Instrument]:
 class Settings:
     db_path: Path = PROJECT_ROOT / "data" / "stock.db"
     watchlist_path: Path = CONFIG_DIR / "watchlist.yaml"
+    rules_path: Path = CONFIG_DIR / "rules.yaml"
     # 以下欄位含金鑰，repr=False 避免被 log 或錯誤訊息印出
     discord_webhooks: dict[str, str] = field(default_factory=dict, repr=False)
     healthchecks_daily: str | None = field(default=None, repr=False)
     healthchecks_watch: str | None = field(default=None, repr=False)
+    finnhub_key: str | None = field(default=None, repr=False)
 
 
 def warn_if_world_readable(path: Path) -> bool:
@@ -66,4 +68,5 @@ def load_settings(env_file: Path | None = PROJECT_ROOT / ".env") -> Settings:
         discord_webhooks=webhooks,
         healthchecks_daily=env.get("HEALTHCHECKS_URL_DAILY") or None,
         healthchecks_watch=env.get("HEALTHCHECKS_URL_WATCH") or None,
+        finnhub_key=env.get("FINNHUB_KEY") or None,
     )

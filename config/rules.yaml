@@ -6,4 +6,7 @@ rules:
   - id: vol_spike_2x
     type: volume_vs_avg20
     multiplier: 2.0
+    # full_day：盤中累積量直接與整日 20 日均量比，觸發多半集中在收盤前。
+    # 之後可改為依交易時間換算（尚未實作）。
+    basis: full_day
     channels: [alerts]

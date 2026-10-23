@@ -1,7 +1,8 @@
 """外部資料存取介面。
 
 業務邏輯只能透過 DataSource 取資料，不得直接 import yfinance 或打 Finnhub。
-實作（yfinance、finnhub）於階段 2 與 3 加入，測試一律用 tests/fixtures/ 的錄製回應。
+實作：yfinance（日線、盤中成交量）、finnhub（盤中價格）、us（組合成美股資料源）。
+測試一律用 tests/fixtures/ 的回應樣本，不打真實 API。
 """
 
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ class Quote:
     ts: datetime  # UTC aware
     price: float
     prev_close: float
-    day_volume: int
+    day_volume: int | None  # 取不到時為 None，價格類規則照常運作
 
 
 @dataclass(frozen=True, slots=True)

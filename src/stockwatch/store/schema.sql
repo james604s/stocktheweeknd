@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     ts          TEXT NOT NULL,
     price       REAL NOT NULL,
     prev_close  REAL NOT NULL,
-    day_volume  INTEGER NOT NULL,
+    day_volume  INTEGER,
     PRIMARY KEY (ticker, ts)
 );
 

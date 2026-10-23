@@ -43,3 +43,24 @@ def test_previous_trading_day_skips_weekend():
 def test_unknown_market():
     with pytest.raises(ValueError):
         mcal.is_trading_day("XX", date(2026, 10, 16))
+
+
+def test_in_watch_window_regular_day():
+    # 2026-10-16（EDT）：開盤 13:30 UTC，收盤 20:00 UTC，緩衝到 20:30 UTC
+    assert not mcal.in_watch_window("US", datetime(2026, 10, 16, 13, 29, tzinfo=UTC))
+    assert mcal.in_watch_window("US", datetime(2026, 10, 16, 13, 30, tzinfo=UTC))
+    assert mcal.in_watch_window("US", datetime(2026, 10, 16, 20, 30, tzinfo=UTC))
+    assert not mcal.in_watch_window("US", datetime(2026, 10, 16, 20, 31, tzinfo=UTC))
+
+
+def test_in_watch_window_winter_time_and_weekend():
+    # 2026-12-01（EST）：開盤 14:30 UTC
+    assert not mcal.in_watch_window("US", datetime(2026, 12, 1, 14, 0, tzinfo=UTC))
+    assert mcal.in_watch_window("US", datetime(2026, 12, 1, 14, 30, tzinfo=UTC))
+    assert not mcal.in_watch_window("US", datetime(2026, 10, 17, 15, 0, tzinfo=UTC))  # 週六
+
+
+def test_in_watch_window_early_close():
+    # 2026-11-27 感恩節隔天 13:00 ET 收盤 = 18:00 UTC，緩衝到 18:30 UTC
+    assert mcal.in_watch_window("US", datetime(2026, 11, 27, 18, 30, tzinfo=UTC))
+    assert not mcal.in_watch_window("US", datetime(2026, 11, 27, 18, 31, tzinfo=UTC))
