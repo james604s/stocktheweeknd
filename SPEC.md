@@ -1,6 +1,8 @@
 stockwatch — 個人美股每日觀測系統規格
 
-版本：v1.1　日期：2026-10-16（v1.0 於 2026-10-07）
+版本：v1.2　日期：2026-10-23（v1.1 於 2026-10-16，v1.0 於 2026-10-07）
+
+v1.2 變更：盤中成交量改由 yfinance 提供；量能規則加 basis 欄位；哨兵時段外仍 ping healthchecks。
 
 1. 目標與範圍
 
@@ -39,7 +41,8 @@ data/stock.db ──┤      fetch 日線 → 算指標 → 抓新聞 → Claude
 層	選擇	理由
 語言	Python 3.12 + uv	迭代快、生態完整
 日線資料	yfinance	免申請、夠用；隔離在介面後面
-盤中報價、新聞	Finnhub 免費 tier	有 quote 與 company news，60 req/min
+盤中價格、新聞	Finnhub 免費 tier	有 quote 與 company news，60 req/min
+盤中成交量	yfinance 當日日線	Finnhub 免費 quote 不含成交量
 儲存	SQLite	單一寫入者、零維運
 指標	pandas-ta	常見指標全有
 交易日曆	exchange_calendars	處理休市、夏令時間
@@ -83,7 +86,7 @@ stockwatch/
 sql
 instruments      (ticker PK, name, market, in_watchlist, added_at)
 daily_bars       (ticker, date, open, high, low, close, volume, PK(ticker,date))
-quotes           (ticker, ts, price, prev_close, day_volume)
+quotes           (ticker, ts, price, prev_close, day_volume NULL 可, PK(ticker,ts))
 indicators       (ticker, date, rsi14, ma20, ma50, ma200, macd, macd_signal,
                   vol_avg20, PK(ticker,date))
 news             (id PK, ticker, published_at, headline, source, url, fetched_at)
@@ -119,6 +122,7 @@ rules:
   - id: vol_spike_2x
     type: volume_vs_avg20
     multiplier: 2.0
+    basis: full_day   # 盤中累積量直接與整日 20 日均量比；之後可加依交易時間換算的基準
     channels: [alerts]
 
 config/transactions.csv（手動維護，日報 job 啟動時同步進 DB）
@@ -167,22 +171,24 @@ Embed 區塊順序
 
 今天是否美股交易日
 現在是否在 09:30–16:30 ET（含盤後 30 分鐘緩衝），由 exchange_calendars 判斷
-不符合直接退出，不打任何 API
+不符合直接退出，不打任何資料 API；仍 ping healthchecks，證明 cron 與 VPS 存活
 
 流程
 
-抓觀察清單 + 持股的 Finnhub quote，寫入 quotes
+抓觀察清單 + 持股的報價寫入 quotes：價格來自 Finnhub quote，當日累積成交量來自 yfinance 當日日線；成交量取不到時為 NULL，價格規則照常執行
 對每檔跑所有規則：rule(ticker, quote, history) -> Optional[AlertPayload]
 命中者查 alerts_sent，同 ticker 同規則當日已推則跳過
 推 #alerts，寫入 alerts_sent
 每整點推心跳到 #ops：「哨兵存活，本輪檢查 N 檔，命中 M 條」
-ping healthchecks（寬限 15 分鐘）
+ping healthchecks（寬限 15 分鐘）；本輪報價全數失敗時改 ping /fail，由 healthchecks 通知，不每 5 分鐘推 #ops
 
 Alert 格式：embed 標題 NVDA ▲ +6.2%，顏色漲綠跌紅；欄位：現價、前收、成交量倍數、觸發規則。v1 不呼叫 Claude。
 
 防轟炸：每輪最多推 10 則，超過合併成一則摘要。
 
-規則約束：純函數，不碰 DB、不碰系統時間，只依賴傳入參數，可直接以 daily_bars 回測。
+規則約束：純函數，不碰 DB、不碰系統時間，只依賴傳入參數，可直接以 daily_bars 回測。history 為報價日之前的日線，不含當日。
+
+量能比較基準（basis）：v1 為 full_day，盤中累積量直接與前 20 個交易日的整日均量比，觸發多半集中在收盤前。日後若改為依已過交易時間換算預期量，需新增 basis 並把「交易時段進度」傳入規則；改動時 2x 門檻需以 alerts_sent 紀錄重新檢討。
 
 9. Claude 解讀規格
 
@@ -232,7 +238,7 @@ report/：讀 DB 算當日漲跌、20 日均量倍數，組 embed（不呼叫 Cl
 jobs/daily.py 串接 + 交易日判斷
 部署到 VPS，crontab 設定，錯誤推 #ops
 階段 3 細項
-Finnhub quote 抓取 → quotes
+Finnhub quote（價格）+ yfinance 當日成交量 → quotes
 rules/：從 rules.yaml 讀規則，純函數，dedupe 查 alerts_sent
 jobs/watch.py：啟動判斷交易時段，否則退出
 整點心跳 + healthchecks ping
